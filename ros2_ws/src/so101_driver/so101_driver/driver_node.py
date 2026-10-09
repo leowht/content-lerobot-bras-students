@@ -31,7 +31,7 @@ JOINT_NAMES = [
 
 # Gripper joint limits in the URDF (rad).
 # LeRobot convention: 0 % = closed (lower), 100 % = open (upper).
-GRIPPER_RANGE_RAD = (-0.174533, 1.74533)
+GRIPPER_RANGE_RAD = (-0.174533, 1.74533) 
 
 # Calibration file of the real arm, mounted by docker compose (CALIBRATION_FILE in docker/.env).
 CALIBRATION_FILE = Path("/calibration/arm.json")
@@ -58,9 +58,14 @@ class DriverNode(rclpy.node.Node):
         self._robot = self._connect_arm(port)
         self.get_logger().info(f"Robot connected: {type(self._robot).__name__}")
 
+        self.obs: dict = {}
+        self.joints: JointState = JointState()
+
         # TODO: create the publishers, subscribers and timers.
         self.joint_pub = self.create_publisher(JointState, "joint_states", 10)
-        self.create_timer(JOINT_STATE_HZ, self._publish_joint_states)
+        self.create_timer(1/JOINT_STATE_HZ, self._publish_joint_states)
+
+        self.joint_sub = self.create_subscription(JointState, "joint_command", self._cb_joint_command, 10)
 
         self.get_logger().info("Driver node ready.")
 
@@ -96,38 +101,49 @@ class DriverNode(rclpy.node.Node):
         super().destroy_node()
 
     def _cb_joint_command(self, msg: JointState):
-        raise NotImplementedError("TO DO")
+        self.get_logger().info("-------------------------------------------------")
+        self.get_logger().info("RECIEVING")
+
+        action: dict = {}
+
+        for i in range (0, len(msg.name)):
+            # CONVERTIR EN DEGRES AU LIEU DE POURCENTS
+            action[msg.name[i]] = np.clip(msg.position[i], 0.0, 1.0) * 100.0
+
+        self._robot.send_action(action)
+
+        self.get_logger().info(f"Actions: {action}")
+        self.get_logger().info("RECIEVED")
+        # raise NotImplementedError("TO DO")
 
     def _control_step(self):
         raise NotImplementedError("TO DO")
 
     def _publish_joint_states(self):
-        self.get_logger().info("-------------------------------------------------")
-        self.get_logger().info("PUBLISHING")
+        # self.get_logger().info("-------------------------------------------------")
+        # self.get_logger().info("PUBLISHING")
 
-        obs: dict = self._robot.get_observation()
-        js = JointState()
+        self.obs = self._robot.get_observation()
+        js: JointState = JointState()
 
         js.name = []
-        positions = []
+        positions: list = []
 
         for joint_name in JOINT_NAMES:
-            key = f"{joint_name}.pos"
-            if key in obs:
+            key: str = f"{joint_name}.pos"
+            if key in self.obs:
                 js.name.append(joint_name)
-                positions.append(np.clip(obs[key], 0, 100) / 100.0)
+                positions.append(np.clip(self.obs[key], 0, 100) / 100.0) # % to rad
 
         js.position = positions
 
         js.header.stamp = self.get_clock().now().to_msg()
 
-        self.get_logger().info(f"Names: {js.name}")
-        self.get_logger().info(f"Positions: {js.position}")
+        # self.get_logger().info(f"Names: {js.name}")
+        # self.get_logger().info(f"Positions: {js.position}")
 
         self.joint_pub.publish(js)
-        self.get_logger().info("PUBLISHED")
-
-        # raise NotImplementedError("TO DO")
+        # self.get_logger().info("PUBLISHED")
 
 
 def main(args=None):
