@@ -14,6 +14,7 @@ from pathlib import Path
 
 import rclpy
 import rclpy.node
+import numpy as np
 from lerobot.robots.so_follower import SO101Follower, SO101FollowerConfig
 from rclpy.executors import ExternalShutdownException
 from sensor_msgs.msg import JointState
@@ -58,6 +59,8 @@ class DriverNode(rclpy.node.Node):
         self.get_logger().info(f"Robot connected: {type(self._robot).__name__}")
 
         # TODO: create the publishers, subscribers and timers.
+        self.joint_pub = self.create_publisher(JointState, "joint_states", 10)
+        self.create_timer(JOINT_STATE_HZ, self._publish_joint_states)
 
         self.get_logger().info("Driver node ready.")
 
@@ -99,7 +102,32 @@ class DriverNode(rclpy.node.Node):
         raise NotImplementedError("TO DO")
 
     def _publish_joint_states(self):
-        raise NotImplementedError("TO DO")
+        self.get_logger().info("-------------------------------------------------")
+        self.get_logger().info("PUBLISHING")
+
+        obs: dict = self._robot.get_observation()
+        js = JointState()
+
+        js.name = []
+        positions = []
+
+        for joint_name in JOINT_NAMES:
+            key = f"{joint_name}.pos"
+            if key in obs:
+                js.name.append(joint_name)
+                positions.append(np.clip(obs[key], 0, 100) / 100.0)
+
+        js.position = positions
+
+        js.header.stamp = self.get_clock().now().to_msg()
+
+        self.get_logger().info(f"Names: {js.name}")
+        self.get_logger().info(f"Positions: {js.position}")
+
+        self.joint_pub.publish(js)
+        self.get_logger().info("PUBLISHED")
+
+        # raise NotImplementedError("TO DO")
 
 
 def main(args=None):
